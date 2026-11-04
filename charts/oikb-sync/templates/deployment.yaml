@@ -1,0 +1,162 @@
+{{- /*
+The oikb daemon.
+
+`replicas` and the config-hash pod annotation are owned by the reconciler: it sets
+1 replica when there is something to sync and 0 when there is not (oikb exits with an
+empty config), and changes the hash to restart the daemon on config changes.
+To keep `helm upgrade` from undoing that, both are rendered from the live object.
+First install: 0 replicas; the reconciler scales up once it has written a config.
+*/}}
+{{- $fullname := include "oikb-sync.fullname" . }}
+{{- $live := lookup "apps/v1" "Deployment" .Release.Namespace $fullname | default dict }}
+{{- $replicas := dig "spec" "replicas" 0 $live }}
+{{- $hash := dig "spec" "template" "metadata" "annotations" "oikb.openwebui.com/config-hash" "" $live }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "oikb-sync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: daemon
+spec:
+  # Managed by the reconciler (0 or 1). Never more than 1: oikb keeps its
+  # scheduler and per-KB locks in one process.
+  replicas: {{ $replicas }}
+  # Recreate, so two daemons never sync the same Knowledge Base during a rollout.
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "oikb-sync.selectorLabels" (list . "daemon") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "oikb-sync.selectorLabels" (list . "daemon") | nindent 8 }}
+        {{- with .Values.daemon.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- if $hash }}
+        oikb.openwebui.com/config-hash: {{ $hash | quote }}
+        {{- end }}
+        checksum/keys: {{ printf "%s|%s|%s" .Values.openWebUI.apiKey .Values.daemon.apiKey .Values.existingSecret | sha256sum | trunc 16 | quote }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.daemon.service.port | quote }}
+        prometheus.io/path: /metrics
+        {{- with .Values.daemon.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.daemon.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "oikb-sync.podSecurityContext" (list . 1000) | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: oikb
+          image: {{ include "oikb-sync.daemonImage" . }}
+          imagePullPolicy: {{ .Values.daemon.image.pullPolicy }}
+          args: ["daemon", "--port", "8080", "--config", "/app/.oikb.yaml"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: OPEN_WEBUI_URL
+              value: {{ include "oikb-sync.openWebUIURL" . | quote }}
+            - name: OPEN_WEBUI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "oikb-sync.keysSecretName" . }}
+                  key: {{ .Values.secretKeys.openWebUIApiKey }}
+            # Protects /sync and /history. Read from a file, not an env var.
+            - name: OIKB_API_KEY_FILE
+              value: /run/secrets/oikb/{{ .Values.secretKeys.daemonApiKey }}
+            - name: LOG_FORMAT
+              value: {{ .Values.daemon.logFormat | quote }}
+            # oikb's only database: SQLite sync history (no credentials).
+            - name: OIKB_CONFIG_DIR
+              value: /data
+            {{- with include "oikb-sync.proxyEnv" . }}
+            {{- . | trim | nindent 12 }}
+            {{- end }}
+            # SECURITY: never add source credentials (GITHUB_TOKEN, GITLAB_TOKEN, ...)
+            # via extraEnv: Knowledge Bases on public repos have no auth: block and
+            # would fall back to them.
+            {{- with .Values.daemon.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/.oikb.yaml
+              subPath: .oikb.yaml
+              readOnly: true
+            - name: daemon-api-key
+              mountPath: /run/secrets/oikb
+              readOnly: true
+            - name: data
+              mountPath: /data
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.daemon.resources | nindent 12 }}
+          securityContext:
+            {{- include "oikb-sync.containerSecurityContext" . | nindent 12 }}
+      volumes:
+        # Written by the reconciler from the Knowledge Base descriptions.
+        - name: config
+          secret:
+            secretName: {{ include "oikb-sync.configSecretName" . }}
+            defaultMode: 0440
+            items:
+              - key: .oikb.yaml
+                path: .oikb.yaml
+        - name: daemon-api-key
+          secret:
+            secretName: {{ include "oikb-sync.keysSecretName" . }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.secretKeys.daemonApiKey }}
+                path: {{ .Values.secretKeys.daemonApiKey }}
+        - name: data
+          {{- if .Values.daemon.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.daemon.persistence.existingClaim | default (printf "%s-data" $fullname) }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.daemon.persistence.size }}
+          {{- end }}
+      {{- with .Values.daemon.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.daemon.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.daemon.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

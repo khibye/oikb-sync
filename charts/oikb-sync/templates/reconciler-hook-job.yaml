@@ -1,0 +1,35 @@
+{{- /*
+Runs the reconciler once right after `helm install` / `helm upgrade`, so new
+settings apply immediately instead of at the next CronJob run. A failure (wrong
+URL, wrong API key, no network) fails the install/upgrade, with the reason in the
+Job log. The failed Job is kept for inspection; it is replaced on the next upgrade.
+*/}}
+{{- if .Values.reconciler.runOnInstall }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "oikb-sync.reconcilerName" . }}-init
+  labels:
+    {{- include "oikb-sync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: reconciler
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: {{ .Values.reconciler.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "oikb-sync.selectorLabels" (list . "reconciler") | nindent 8 }}
+        {{- with .Values.reconciler.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.reconciler.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "oikb-sync.reconcilerPodSpec" . | nindent 6 }}
+{{- end }}

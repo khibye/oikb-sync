@@ -1,0 +1,20 @@
+{{- with .Values.daemon.persistence }}
+{{- if and .enabled (not .existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "oikb-sync.fullname" $ }}-data
+  labels:
+    {{- include "oikb-sync.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: daemon
+spec:
+  accessModes:
+    - {{ .accessMode }}
+  {{- if .storageClass }}
+  storageClassName: {{ .storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .size }}
+{{- end }}
+{{- end }}

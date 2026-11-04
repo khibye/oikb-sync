@@ -1,0 +1,39 @@
+# CI: every optional feature switched on, on OpenShift.
+openWebUI:
+  url: https://open-webui.example.com/
+existingSecret: my-oikb-keys
+platform: openshift
+proxy:
+  httpProxy: http://proxy.example.com:3128
+  noProxy: .corp.example.com,10.0.0.0/8
+daemon:
+  image:
+    tag: "0.6.0"
+  logFormat: text
+  persistence:
+    enabled: true
+    storageClass: standard
+  metrics:
+    serviceMonitor:
+      enabled: true
+      labels:
+        release: prometheus
+  extraEnv:
+    - name: EXTRA
+      value: "1"
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations:
+    - key: dedicated
+      operator: Exists
+reconciler:
+  schedule: "*/2 * * * *"
+  defaultInterval: "0 6 * * 1-5"
+  allowAnonymous: false
+  dryRun: true
+  suspend: true
+  runOnInstall: false
+imagePullSecrets:
+  - name: regcred
+commonLabels:
+  team: platform

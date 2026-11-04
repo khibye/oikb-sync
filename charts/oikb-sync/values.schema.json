@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["openWebUI"],
+  "properties": {
+    "openWebUI": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Open WebUI base URL, e.g. http://open-webui.open-webui.svc.cluster.local:8080",
+          "pattern": "^(https?://[^/\\s]+.*)?$"
+        },
+        "apiKey": { "type": "string" }
+      }
+    },
+    "existingSecret": { "type": "string" },
+    "secretKeys": {
+      "type": "object",
+      "properties": {
+        "openWebUIApiKey": { "type": "string", "minLength": 1 },
+        "daemonApiKey": { "type": "string", "minLength": 1 }
+      }
+    },
+    "proxy": {
+      "type": "object",
+      "properties": {
+        "httpProxy": { "type": "string" },
+        "httpsProxy": { "type": "string" },
+        "noProxy": { "type": "string" }
+      }
+    },
+    "platform": { "type": "string", "enum": ["auto", "openshift", "kubernetes"] },
+    "daemon": {
+      "type": "object",
+      "properties": {
+        "image": { "$ref": "#/definitions/image" },
+        "apiKey": { "type": "string" },
+        "logFormat": { "type": "string", "enum": ["text", "json"] },
+        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+        "resources": { "type": "object" },
+        "service": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "existingClaim": { "type": "string" },
+            "storageClass": { "type": "string" },
+            "accessMode": { "type": "string" },
+            "size": { "type": "string" }
+          }
+        },
+        "metrics": { "type": "object" },
+        "extraEnv": { "type": "array" },
+        "podAnnotations": { "type": "object" },
+        "podLabels": { "type": "object" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
+    },
+    "reconciler": {
+      "type": "object",
+      "properties": {
+        "image": { "$ref": "#/definitions/image" },
+        "schedule": { "type": "string", "minLength": 9 },
+        "suspend": { "type": "boolean" },
+        "runOnInstall": { "type": "boolean" },
+        "defaultInterval": {
+          "type": "string",
+          "description": "Simple duration (30m, 1h, 1d) or a 5-field cron expression",
+          "pattern": "^([0-9]+[smhd]|\\S+ \\S+ \\S+ \\S+ \\S+)$"
+        },
+        "allowAnonymous": { "type": "boolean" },
+        "dryRun": { "type": "boolean" },
+        "activeDeadlineSeconds": { "type": "integer", "minimum": 10 },
+        "successfulJobsHistoryLimit": { "type": "integer", "minimum": 0 },
+        "failedJobsHistoryLimit": { "type": "integer", "minimum": 0 },
+        "resources": { "type": "object" },
+        "podAnnotations": { "type": "object" },
+        "podLabels": { "type": "object" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
+    },
+    "imagePullSecrets": { "type": "array" },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "commonLabels": { "type": "object" }
+  },
+  "definitions": {
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    }
+  }
+}

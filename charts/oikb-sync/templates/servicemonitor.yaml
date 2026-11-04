@@ -1,0 +1,22 @@
+{{- with .Values.daemon.metrics.serviceMonitor }}
+{{- if .enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "oikb-sync.fullname" $ }}
+  labels:
+    {{- include "oikb-sync.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: daemon
+    {{- with .labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "oikb-sync.selectorLabels" (list $ "daemon") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .interval }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+# Local values files often hold API keys: keep them out of Git.
+my-values*.yaml
+*.local.yaml
+*.tgz

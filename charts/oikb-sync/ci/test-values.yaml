@@ -1,0 +1,4 @@
+# Values used by CI (helm lint / helm template). Not for real installs.
+openWebUI:
+  url: http://open-webui.open-webui.svc.cluster.local:8080
+  apiKey: sk-ci-placeholder

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "oikb-sync.fullname" . }}
+  labels:
+    {{- include "oikb-sync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: daemon
+spec:
+  type: {{ .Values.daemon.service.type }}
+  selector:
+    {{- include "oikb-sync.selectorLabels" (list . "daemon") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.daemon.service.port }}
+      targetPort: http
+      protocol: TCP

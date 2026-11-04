@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oikb-sync.reconcilerName" . }}
+  labels:
+    {{- include "oikb-sync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: reconciler
+data:
+  reconciler.py: |
+    {{- .Files.Get "files/reconciler.py" | nindent 4 }}

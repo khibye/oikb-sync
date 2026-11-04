@@ -1,0 +1,37 @@
+oikb-sync {{ .Chart.Version }} (oikb {{ .Values.daemon.image.tag | default .Chart.AppVersion }}) is installed in namespace {{ .Release.Namespace }}.
+
+Open WebUI: {{ include "oikb-sync.openWebUIURL" . }}
+Platform:   {{ if include "oikb-sync.isOpenShift" . }}OpenShift (UIDs assigned by the SCC){{ else }}Kubernetes (fixed non-root UIDs){{ end }}
+{{- if .Values.reconciler.dryRun }}
+
+!! reconciler.dryRun is ON: the reconciler only logs what it would do. Nothing is synced.
+{{- end }}
+{{- if .Values.reconciler.suspend }}
+
+!! reconciler.suspend is ON: Knowledge Base changes are not picked up.
+{{- end }}
+
+HOW USERS CONNECT A KNOWLEDGE BASE
+  1. In Open WebUI, put these lines in the Knowledge Base description:
+       oikb: gitlab:my-group/my-project
+       oikb-base-url: https://gitlab.example.com     (self-managed GitLab only)
+       oikb-token: glpat-...                          (not needed for public repos)
+  2. Share the Knowledge Base with the service user, with WRITE permission.
+  3. On its next run (schedule: {{ .Values.reconciler.schedule }}) the reconciler picks it up and the daemon syncs it.
+
+CHECK (on OpenShift, oc works the same as kubectl)
+  # Last reconciler run (WARN lines explain skipped Knowledge Bases)
+  kubectl -n {{ .Release.Namespace }} logs job/$(kubectl -n {{ .Release.Namespace }} get jobs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=reconciler --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')
+
+  # Run the reconciler now
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "oikb-sync.reconcilerName" . }} {{ include "oikb-sync.reconcilerName" . | trunc 40 }}-manual-$(date +%s)
+
+  # Daemon (0 replicas = no Knowledge Base to sync yet)
+  kubectl -n {{ .Release.Namespace }} get deploy {{ include "oikb-sync.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "oikb-sync.fullname" . }}
+
+  # Sync status of every Knowledge Base
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "oikb-sync.fullname" . }} 8080:{{ .Values.daemon.service.port }}
+  curl -s localhost:8080/health
+
+Docs: charts/oikb-sync/README.md (supported sources, every setting, troubleshooting).

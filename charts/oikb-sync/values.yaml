@@ -1,0 +1,149 @@
+# Default values for oikb-sync.
+#
+# The only values you MUST set are openWebUI.url and openWebUI.apiKey
+# (or existingSecret). Everything else has a working default.
+# Full reference: charts/oikb-sync/README.md
+
+# -- Open WebUI connection. Used by both the reconciler and the oikb daemon.
+openWebUI:
+  # -- (required) Open WebUI base URL as reachable from this namespace, without a
+  # trailing path. In-cluster example:
+  # http://open-webui.open-webui.svc.cluster.local:8080
+  url: ""
+  # -- (required unless existingSecret is set) API key of the Open WebUI
+  # *service user* (Settings -> Account -> API keys). Users share their
+  # Knowledge Bases with this user, with write permission.
+  apiKey: ""
+
+# -- Name of an existing Secret holding the API keys, instead of letting the chart
+# create one. It must contain the keys named in secretKeys.
+existingSecret: ""
+
+# -- Key names inside the API-keys Secret (the chart's own, or existingSecret).
+secretKeys:
+  openWebUIApiKey: open-webui-api-key
+  daemonApiKey: oikb-api-key
+
+# -- HTTP proxy for outbound traffic (to GitHub, GitLab, Confluence, ...).
+# OpenShift does not inject its cluster-wide proxy into application pods, so set
+# it here when the cluster needs one: oc get proxy cluster -o jsonpath='{.status}'
+proxy:
+  # -- e.g. http://proxy.example.com:3128
+  httpProxy: ""
+  # -- e.g. http://proxy.example.com:3128
+  httpsProxy: ""
+  # -- Extra NO_PROXY entries (comma-separated). The chart always adds the Open
+  # WebUI host, .svc, .cluster.local, localhost and 127.0.0.1.
+  noProxy: ""
+
+# -- Target platform: auto (detect OpenShift via the security.openshift.io API),
+# openshift (let the SCC assign UIDs) or kubernetes (set fixed non-root UIDs).
+platform: auto
+
+# -- The oikb daemon: does all the syncing. Always one replica (managed by the reconciler).
+daemon:
+  image:
+    repository: ghcr.io/open-webui/oikb
+    # -- Defaults to the chart's appVersion. Must be >= 0.5.0.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # -- API key protecting the daemon's /sync and /history endpoints. Generated
+  # (and kept across upgrades) when empty. Ignored when existingSecret is set.
+  apiKey: ""
+
+  # -- text or json
+  logFormat: json
+
+  # -- Grace period for in-flight syncs when the daemon restarts.
+  terminationGracePeriodSeconds: 60
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  # -- Sync history (a small SQLite file, no credentials). Without persistence it
+  # is reset on every daemon restart, which happens on every config change.
+  persistence:
+    enabled: false
+    # -- Use an existing PVC instead of creating one.
+    existingClaim: ""
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 100Mi
+
+  metrics:
+    serviceMonitor:
+      # -- Create a ServiceMonitor (Prometheus Operator / OpenShift user-workload monitoring).
+      enabled: false
+      interval: 1m
+      labels: {}
+
+  # -- Extra environment variables. Never put source credentials here
+  # (GITHUB_TOKEN, GITLAB_TOKEN, ...): see README, "Security".
+  extraEnv: []
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -- The reconciler: reads Knowledge Base descriptions and writes the daemon's config.
+reconciler:
+  image:
+    repository: docker.io/library/python
+    tag: 3.12-alpine
+    pullPolicy: IfNotPresent
+
+  # -- How often to read the Knowledge Base descriptions (cron, cluster time zone).
+  schedule: "*/5 * * * *"
+
+  # -- Pause the CronJob (the daemon keeps running with the last config).
+  suspend: false
+
+  # -- Also run once right after every helm install/upgrade, so new settings apply
+  # immediately. If this run fails (e.g. wrong URL or API key), the install fails
+  # with the reason in the Job log.
+  runOnInstall: true
+
+  # -- Sync interval for Knowledge Bases without an oikb-interval line.
+  defaultInterval: 1h
+
+  # -- Allow public GitHub/GitLab/Gitea/Bitbucket repositories without credentials.
+  allowAnonymous: true
+
+  # -- Log the config that would be written (credentials masked) and change nothing.
+  dryRun: false
+
+  activeDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -- Pull secrets for both images.
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Labels added to every object.
+commonLabels: {}

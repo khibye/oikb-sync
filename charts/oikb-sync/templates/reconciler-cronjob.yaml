@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "oikb-sync.reconcilerName" . }}
+  labels:
+    {{- include "oikb-sync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: reconciler
+spec:
+  schedule: {{ .Values.reconciler.schedule | quote }}
+  suspend: {{ .Values.reconciler.suspend }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: {{ .Values.reconciler.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.reconciler.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.reconciler.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "oikb-sync.selectorLabels" (list . "reconciler") | nindent 12 }}
+            {{- with .Values.reconciler.podLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.reconciler.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          {{- include "oikb-sync.reconcilerPodSpec" . | nindent 10 }}

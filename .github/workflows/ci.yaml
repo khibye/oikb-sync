@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  reconciler:
+    name: Reconciler tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -B -m unittest discover -s tests -v
+
+  chart:
+    name: Chart lint and validation
+    runs-on: ubuntu-latest
+    env:
+      CHART: charts/oikb-sync
+      KUBERNETES_VERSION: 1.29.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: helm lint
+        run: |
+          helm lint --strict "$CHART" -f "$CHART/ci/test-values.yaml"
+          helm lint --strict "$CHART" -f "$CHART/ci/full-values.yaml"
+          helm lint --strict "$CHART" -f "$CHART/ci/test-values.yaml" --api-versions security.openshift.io/v1
+
+      - name: Missing or invalid values fail with a clear message
+        run: |
+          expect_fail() {  # expect_fail <message> <helm template args...>
+            msg=$1; shift
+            if out=$(helm template t "$CHART" "$@" 2>&1); then echo "expected failure: $*"; exit 1; fi
+            echo "$out" | grep -qi "$msg" || { echo "$out"; echo "expected: $msg"; exit 1; }
+          }
+          expect_fail "openWebUI.url is required"    --set openWebUI.apiKey=k
+          expect_fail "openWebUI.apiKey is required" --set openWebUI.url=http://owui:8080
+          expect_fail "does not match"               --set openWebUI.url=owui:8080 --set openWebUI.apiKey=k
+          expect_fail "platform"                     -f "$CHART/ci/test-values.yaml" --set platform=aws
+
+      - name: Render and validate (Kubernetes, OpenShift, all options)
+        run: |
+          mkdir -p out
+          helm template oikb-sync "$CHART" -n oikb --kube-version "$KUBERNETES_VERSION" \
+            -f "$CHART/ci/test-values.yaml" > out/kubernetes.yaml
+          helm template oikb-sync "$CHART" -n oikb --kube-version "$KUBERNETES_VERSION" \
+            -f "$CHART/ci/test-values.yaml" --api-versions security.openshift.io/v1 > out/openshift.yaml
+          helm template oikb-sync "$CHART" -n oikb --kube-version "$KUBERNETES_VERSION" \
+            -f "$CHART/ci/full-values.yaml" > out/full.yaml
+          kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSION" \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            out/*.yaml
+
+      - name: Chart-specific checks
+        run: |
+          pip install --quiet pyyaml
+          python3 - <<'PY'
+          import yaml
+          def load(name):
+              docs = [d for d in yaml.safe_load_all(open(f"out/{name}.yaml")) if d]
+              return {f'{d["kind"]}/{d["metadata"]["name"]}': d for d in docs}
+          k8s, ocp = load("kubernetes"), load("openshift")
+          cfg = k8s["Secret/oikb-sync-config"]
+          assert "data" not in cfg and "stringData" not in cfg, "config Secret must be rendered without data"
+          pod = lambda objs: objs["Deployment/oikb-sync"]["spec"]["template"]["spec"]
+          assert pod(k8s)["securityContext"]["runAsUser"] == 1000
+          assert "runAsUser" not in pod(ocp)["securityContext"], "OpenShift: UIDs must come from the SCC"
+          assert k8s["Deployment/oikb-sync"]["spec"]["replicas"] == 0
+          script = k8s["ConfigMap/oikb-sync-reconciler"]["data"]["reconciler.py"]
+          assert script == open("charts/oikb-sync/files/reconciler.py").read(), "embedded reconciler differs"
+          rules = k8s["Role/oikb-sync-reconciler"]["rules"]
+          assert all(r.get("resourceNames") for r in rules), "every RBAC rule must be limited by name"
+          print("chart-specific checks passed")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rendered-manifests
+          path: out/

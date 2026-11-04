@@ -1,0 +1,21 @@
+apiVersion: v2
+name: oikb-sync
+description: >-
+  Self-service sync of Open WebUI Knowledge Bases from GitHub, GitLab, Gitea,
+  Bitbucket, Confluence and SharePoint. Users configure the source and
+  credentials in the Knowledge Base description; a reconciler feeds that into
+  the oikb daemon, which does the syncing.
+type: application
+version: 0.1.0
+# The oikb version (image ghcr.io/open-webui/oikb). Per-source credentials need >= 0.5.0.
+appVersion: "0.6.0"
+kubeVersion: ">=1.23.0-0"
+keywords:
+  - open-webui
+  - oikb
+  - knowledge-base
+  - rag
+  - sync
+  - openshift
+sources:
+  - https://github.com/open-webui/oikb
