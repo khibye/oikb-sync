@@ -43,7 +43,7 @@ jobs:
         run: |
           helm lint --strict "$CHART" -f "$CHART/ci/test-values.yaml"
           helm lint --strict "$CHART" -f "$CHART/ci/full-values.yaml"
-          helm lint --strict "$CHART" -f "$CHART/ci/test-values.yaml" --api-versions security.openshift.io/v1
+          helm lint --strict "$CHART" -f "$CHART/ci/test-values.yaml" --set platform=openshift
 
       - name: Missing or invalid values fail with a clear message
         run: |
